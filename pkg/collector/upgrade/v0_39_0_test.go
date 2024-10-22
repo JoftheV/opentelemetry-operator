@@ -24,7 +24,6 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
-	"github.com/open-telemetry/opentelemetry-operator/internal/version"
 	"github.com/open-telemetry/opentelemetry-operator/pkg/collector/upgrade"
 )
 
@@ -74,7 +73,7 @@ service:
 	// drop processors.memory_limiter field 'ballast_size_mib'
 	up := &upgrade.VersionUpgrade{
 		Log:      logger,
-		Version:  version.Get(),
+		Version:  makeVersion("0.39.0"),
 		Client:   nil,
 		Recorder: record.NewFakeRecorder(upgrade.RecordBufferSize),
 	}
@@ -101,7 +100,6 @@ service:
     metrics:
       exporters:
       - debug
-      processors: []
       receivers:
       - apache/mtls
       - apache
@@ -165,7 +163,6 @@ service:
     traces:
       exporters:
       - debug
-      processors: []
       receivers:
       - otlp/mtls
       - otlp

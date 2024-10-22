@@ -20,8 +20,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/open-telemetry/opentelemetry-operator/internal/manifests"
-	"github.com/open-telemetry/opentelemetry-operator/internal/manifests/manifestutils"
-	"github.com/open-telemetry/opentelemetry-operator/internal/manifests/targetallocator/adapters"
 )
 
 // TargetAllocator builds the TargetAllocator CR for the given instance.
@@ -30,19 +28,6 @@ func TargetAllocator(params manifests.Params) (*v1alpha1.TargetAllocator, error)
 	taSpec := params.OtelCol.Spec.TargetAllocator
 	if !taSpec.Enabled {
 		return nil, nil
-	}
-
-	collectorSelector := metav1.LabelSelector{
-		MatchLabels: manifestutils.SelectorLabels(params.OtelCol.ObjectMeta, ComponentOpenTelemetryCollector),
-	}
-
-	configStr, err := params.OtelCol.Spec.Config.Yaml()
-	if err != nil {
-		return nil, err
-	}
-	scrapeConfigs, err := getScrapeConfigs(configStr)
-	if err != nil {
-		return nil, err
 	}
 
 	return &v1alpha1.TargetAllocator{
@@ -68,34 +53,10 @@ func TargetAllocator(params manifests.Params) (*v1alpha1.TargetAllocator, error)
 				PodAnnotations:            params.OtelCol.Spec.PodAnnotations,
 				PodDisruptionBudget:       taSpec.PodDisruptionBudget,
 			},
-			CollectorSelector:  collectorSelector,
 			AllocationStrategy: taSpec.AllocationStrategy,
 			FilterStrategy:     taSpec.FilterStrategy,
-			ScrapeConfigs:      scrapeConfigs,
 			PrometheusCR:       taSpec.PrometheusCR,
 			Observability:      taSpec.Observability,
 		},
 	}, nil
-}
-
-func getScrapeConfigs(otelcolConfig string) ([]v1beta1.AnyConfig, error) {
-	// Collector supports environment variable substitution, but the TA does not.
-	// TA Scrape Configs should have a single "$", as it does not support env var substitution
-	prometheusReceiverConfig, err := adapters.UnescapeDollarSignsInPromConfig(otelcolConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	scrapeConfigs, err := adapters.GetScrapeConfigsFromPromConfig(prometheusReceiverConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	v1beta1scrapeConfigs := make([]v1beta1.AnyConfig, len(scrapeConfigs))
-
-	for i, config := range scrapeConfigs {
-		v1beta1scrapeConfigs[i] = v1beta1.AnyConfig{Object: config}
-	}
-
-	return v1beta1scrapeConfigs, nil
 }

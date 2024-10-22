@@ -15,13 +15,11 @@
 package config
 
 import (
-	"regexp"
-	"strings"
-
 	"github.com/go-logr/logr"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect"
+	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect/certmanager"
 	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect/openshift"
 	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect/prometheus"
 	autoRBAC "github.com/open-telemetry/opentelemetry-operator/internal/autodetect/rbac"
@@ -59,6 +57,7 @@ type options struct {
 	operatorOpAMPBridgeImage            string
 	openshiftRoutesAvailability         openshift.RoutesAvailability
 	prometheusCRAvailability            prometheus.Availability
+	certManagerAvailability             certmanager.Availability
 	labelsFilter                        []string
 	annotationsFilter                   []string
 }
@@ -209,26 +208,15 @@ func WithRBACPermissions(rAuto autoRBAC.Availability) Option {
 	}
 }
 
+func WithCertManagerAvailability(cmAvl certmanager.Availability) Option {
+	return func(o *options) {
+		o.certManagerAvailability = cmAvl
+	}
+}
+
 func WithLabelFilters(labelFilters []string) Option {
 	return func(o *options) {
-
-		filters := []string{}
-		for _, pattern := range labelFilters {
-			var result strings.Builder
-
-			for i, literal := range strings.Split(pattern, "*") {
-
-				// Replace * with .*
-				if i > 0 {
-					result.WriteString(".*")
-				}
-				// Quote any regular expression meta characters in the
-				// literal text.
-				result.WriteString(regexp.QuoteMeta(literal))
-			}
-			filters = append(filters, result.String())
-		}
-		o.labelsFilter = filters
+		o.labelsFilter = append(o.labelsFilter, labelFilters...)
 	}
 }
 
@@ -237,23 +225,7 @@ func WithLabelFilters(labelFilters []string) Option {
 // * kubectl.kubernetes.io/last-applied-configuration.
 func WithAnnotationFilters(annotationFilters []string) Option {
 	return func(o *options) {
-		filters := o.annotationsFilter
-		for _, pattern := range annotationFilters {
-			var result strings.Builder
-
-			for i, literal := range strings.Split(pattern, "*") {
-
-				// Replace * with .*
-				if i > 0 {
-					result.WriteString(".*")
-				}
-				// Quote any regular expression meta characters in the
-				// literal text.
-				result.WriteString(regexp.QuoteMeta(literal))
-			}
-			filters = append(filters, result.String())
-		}
-		o.annotationsFilter = filters
+		o.annotationsFilter = append(o.annotationsFilter, annotationFilters...)
 	}
 }
 

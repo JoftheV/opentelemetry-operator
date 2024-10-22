@@ -12,6 +12,7 @@ The operator manages:
 ## Documentation
 
 - [API docs](./docs/api.md)
+- [Offical Telemetry Operator page](https://opentelemetry.io/docs/kubernetes/operator/)
 
 ## Helm Charts
 
@@ -38,8 +39,10 @@ spec:
     receivers:
       otlp:
         protocols:
-          grpc: {}
-          http: {}
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
     processors:
       memory_limiter:
         check_interval: 1s
@@ -121,7 +124,6 @@ spec:
       pipelines:
         traces:
           receivers: [jaeger]
-          processors: []
           exporters: [debug]
 EOF
 
@@ -359,7 +361,7 @@ In some cases (for example in the case of the injection of an Istio sidecar) it 
 
 For this, it is possible to fine-tune the pod(s) on which the injection will be carried out.
 
-For this, we will use the `instrumentation.opentelemetry.io/container-names` annotation for which we will indicate one or more pod names (`.spec.containers.name`) on which the injection must be made:
+For this, we will use the `instrumentation.opentelemetry.io/container-names` annotation for which we will indicate one or more container names (`.spec.containers.name`) on which the injection must be made:
 
 ```yaml
 apiVersion: apps/v1
@@ -432,6 +434,12 @@ ApacheHttpD:
 
 ```bash
 instrumentation.opentelemetry.io/apache-httpd-container-names: "apache1,apache2"
+```
+
+NGINX:
+
+```bash
+instrumentation.opentelemetry.io/inject-nginx-container-names: "nginx1,nginx2"
 ```
 
 SDK:
@@ -600,7 +608,7 @@ spec:
   mode: statefulset
   targetAllocator:
     enabled: true
-  config: 
+  config:
     receivers:
       prometheus:
         config:
@@ -623,7 +631,6 @@ spec:
       pipelines:
         metrics:
           receivers: [prometheus]
-          processors: []
           exporters: [debug]
 EOF
 ```
@@ -648,7 +655,6 @@ service:
   pipelines:
     metrics:
       receivers: [prometheus]
-      processors: []
       exporters: [debug]
 ```
 
@@ -693,6 +699,8 @@ spec:
     serviceAccount: everything-prometheus-operator-needs
     prometheusCR:
       enabled: true
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}
   config:
     receivers:
       prometheus:
@@ -705,10 +713,82 @@ spec:
       pipelines:
         metrics:
           receivers: [prometheus]
-          processors: []
           exporters: [debug]
 EOF
 ```
+
+## Configure resource attributes
+
+### Configure resource attributes with annotations
+
+This example shows a pod configuration with OpenTelemetry annotations using the `resource.opentelemetry.io/` prefix. These annotations can be used to add resource attributes to data produced by OpenTelemetry instrumentation.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-pod
+  annotations:
+    resource.opentelemetry.io/service.name: "my-service"
+    resource.opentelemetry.io/service.version: "1.0.0"
+    resource.opentelemetry.io/environment: "production"
+spec:
+  containers:
+  - name: main-container
+    image: your-image:tag
+```
+
+### Configure resource attributes with labels
+
+You can also use common labels to set resource attributes.
+
+The following labels are supported:
+- `app.kubernetes.io/name` becomes `service.name`
+- `app.kubernetes.io/version` becomes `service.version`
+- `app.kubernetes.io/part-of` becomes `service.namespace`
+- `app.kubernetes.io/instance` becomes `service.instance.id`
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-pod
+  labels:
+    app.kubernetes.io/name: "my-service"
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/part-of: "shop"
+    app.kubernetes.io/instance: "my-service-123"
+spec:
+  containers:
+  - name: main-container
+    image: your-image:tag
+```
+
+This requires an explicit opt-in as follows:
+
+```yaml
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: my-instrumentation
+spec:
+  defaults:
+    useLabelsForResourceAttributes: true
+```
+
+### Priority for setting resource attributes
+
+The priority for setting resource attributes is as follows (first found wins):
+
+1. Resource attributes set via `OTEL_RESOURCE_ATTRIBUTES` and `OTEL_SERVICE_NAME` environment variables
+2. Resource attributes set via annotations (with the `resource.opentelemetry.io/` prefix)
+3. Resource attributes set via labels (e.g. `app.kubernetes.io/name`)
+   if the `Instrumentation` CR has defaults.useLabelsForResourceAttributes=true (see above)
+4. Resource attributes calculated from the pod's metadata (e.g. `k8s.pod.name`)
+5. Resource attributes set via the `Instrumentation` CR (in the `spec.resource.resourceAttributes` section)
+
+This priority is applied for each resource attribute separately, so it is possible to set some attributes via
+annotations and others via labels.
 
 ## Compatibility matrix
 
@@ -720,39 +800,43 @@ By default, the OpenTelemetry Operator ensures consistent versioning between its
 
 When a custom `Spec.Image` is used with an `OpenTelemetryCollector` resource, the OpenTelemetry Operator will not manage this versioning and upgrading. In this scenario, it is best practice that the OpenTelemetry Operator version should match the underlying core version. Given a `OpenTelemetryCollector` resource with a `Spec.Image` configured to a custom image based on underlying OpenTelemetry Collector at version `0.40.0`, it is recommended that the OpenTelemetry Operator is kept at version `0.40.0`.
 
-### OpenTelemetry Operator vs. Kubernetes vs. Cert Manager
+### OpenTelemetry Operator vs. Kubernetes vs. Cert Manager vs Prometheus Operator
 
 We strive to be compatible with the widest range of Kubernetes versions as possible, but some changes to Kubernetes itself require us to break compatibility with older Kubernetes versions, be it because of code incompatibilities, or in the name of maintainability. Every released operator will support a specific range of Kubernetes versions, to be determined at the latest during the release.
 
 We use `cert-manager` for some features of this operator and the third column shows the versions of the `cert-manager` that are known to work with this operator's versions.
 
+The Target Allocator supports prometheus-operator CRDs like ServiceMonitor, and it does so by using packages imported from prometheus-operator itself. The table shows which version is shipped with a given operator version.
+Generally speaking, these are backwards compatible, but specific features require the appropriate package versions.
+
 The OpenTelemetry Operator _might_ work on versions outside of the given range, but when opening new issues, please make sure to test your scenario on a supported version.
 
-| OpenTelemetry Operator | Kubernetes     | Cert-Manager |
-|------------------------| -------------- | ------------ |
-| v0.100.0               | v1.23 to v1.29 | v1           |
-| v0.99.0                | v1.23 to v1.29 | v1           |
-| v0.98.0                | v1.23 to v1.29 | v1           |
-| v0.97.0                | v1.23 to v1.29 | v1           |
-| v0.96.0                | v1.23 to v1.29 | v1           |
-| v0.95.0                | v1.23 to v1.29 | v1           |
-| v0.94.0                | v1.23 to v1.29 | v1           |
-| v0.93.0                | v1.23 to v1.29 | v1           |
-| v0.92.0                | v1.23 to v1.29 | v1           |
-| v0.91.0                | v1.23 to v1.29 | v1           |
-| v0.90.0                | v1.23 to v1.28 | v1           |
-| v0.89.0                | v1.23 to v1.28 | v1           |
-| v0.88.0                | v1.23 to v1.28 | v1           |
-| v0.87.0                | v1.23 to v1.28 | v1           |
-| v0.86.0                | v1.23 to v1.28 | v1           |
-| v0.85.0                | v1.19 to v1.28 | v1           |
-| v0.84.0                | v1.19 to v1.28 | v1           |
-| v0.83.0                | v1.19 to v1.27 | v1           |
-| v0.82.0                | v1.19 to v1.27 | v1           |
-| v0.81.0                | v1.19 to v1.27 | v1           |
-| v0.80.0                | v1.19 to v1.27 | v1           |
-| v0.79.0                | v1.19 to v1.27 | v1           |
-| v0.78.0                | v1.19 to v1.27 | v1           |
+| OpenTelemetry Operator | Kubernetes     | Cert-Manager | Prometheus-Operator |
+|------------------------|----------------| ------------ |---------------------|
+| v0.111.0               | v1.23 to v1.31 | v1           | v0.76.0             |
+| v0.110.0               | v1.23 to v1.31 | v1           | v0.76.0             |
+| v0.109.0               | v1.23 to v1.31 | v1           | v0.76.0             |
+| v0.108.0               | v1.23 to v1.31 | v1           | v0.76.0             |
+| v0.107.0               | v1.23 to v1.30 | v1           | v0.75.0             |
+| v0.106.0               | v1.23 to v1.30 | v1           | v0.75.0             |
+| v0.105.0               | v1.23 to v1.30 | v1           | v0.74.0             |
+| v0.104.0               | v1.23 to v1.30 | v1           | v0.74.0             |
+| v0.103.0               | v1.23 to v1.30 | v1           | v0.74.0             |
+| v0.102.0               | v1.23 to v1.30 | v1           | v0.71.2             |
+| v0.101.0               | v1.23 to v1.30 | v1           | v0.71.2             |
+| v0.100.0               | v1.23 to v1.29 | v1           | v0.71.2             |
+| v0.99.0                | v1.23 to v1.29 | v1           | v0.71.2             |
+| v0.98.0                | v1.23 to v1.29 | v1           | v0.71.2             |
+| v0.97.0                | v1.23 to v1.29 | v1           | v0.71.2             |
+| v0.96.0                | v1.23 to v1.29 | v1           | v0.71.2             |
+| v0.95.0                | v1.23 to v1.29 | v1           | v0.71.2             |
+| v0.94.0                | v1.23 to v1.29 | v1           | v0.71.0             |
+| v0.93.0                | v1.23 to v1.29 | v1           | v0.71.0             |
+| v0.92.0                | v1.23 to v1.29 | v1           | v0.71.0             |
+| v0.91.0                | v1.23 to v1.29 | v1           | v0.70.0             |
+| v0.90.0                | v1.23 to v1.28 | v1           | v0.69.1             |
+| v0.89.0                | v1.23 to v1.28 | v1           | v0.69.1             |
+| v0.88.0                | v1.23 to v1.28 | v1           | v0.68.0             |
 
 ## Contributing and Developing
 
@@ -765,6 +849,7 @@ Approvers ([@open-telemetry/operator-approvers](https://github.com/orgs/open-tel
 - [Benedikt Bongartz](https://github.com/frzifus), Red Hat
 - [Tyler Helmuth](https://github.com/TylerHelmuth), Honeycomb
 - [Yuri Oliveira Sa](https://github.com/yuriolisa), Red Hat
+- [Israel Blancas](https://github.com/iblancasa), Red Hat
 
 Emeritus Approvers:
 
@@ -777,17 +862,17 @@ Emeritus Approvers:
 
 Target Allocator Maintainers ([@open-telemetry/operator-ta-maintainers](https://github.com/orgs/open-telemetry/teams/operator-ta-maintainers)):
 
-- [Kristina Pathak](https://github.com/kristinapathak), Lightstep
 - [Sebastian Poxhofer](https://github.com/secustor)
 
 Emeritus Target Allocator Maintainers
 
 - [Anthony Mirabella](https://github.com/Aneurysm9), AWS
+- [Kristina Pathak](https://github.com/kristinapathak), Lightstep
 
 Maintainers ([@open-telemetry/operator-maintainers](https://github.com/orgs/open-telemetry/teams/operator-maintainers)):
 
 - [Jacob Aronoff](https://github.com/jaronoff97), Lightstep
-- [Mikołaj Świątek](https://github.com/swiatekm-sumo), Sumo Logic
+- [Mikołaj Świątek](https://github.com/swiatekm), Elastic
 - [Pavol Loffay](https://github.com/pavolloffay), Red Hat
 
 Emeritus Maintainers

@@ -15,6 +15,7 @@
 package v1beta1
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -115,12 +116,9 @@ type OpenTelemetryCommonFields struct {
 	// Replicas is the number of pod instances for the underlying replicaset. Set this if you are not using autoscaling.
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
-	// Autoscaler specifies the pod autoscaling configuration to use
-	// for the workload.
-	// +optional
-	Autoscaler *AutoscalerSpec `json:"autoscaler,omitempty"`
 	// PodDisruptionBudget specifies the pod disruption budget configuration to use
-	// for the generated workload.
+	// for the generated workload. By default, a PDB with a MaxUnavailable of one is set.
+	//
 	// +optional
 	PodDisruptionBudget *PodDisruptionBudgetSpec `json:"podDisruptionBudget,omitempty"`
 	// SecurityContext configures the container security context for
@@ -173,11 +171,6 @@ type OpenTelemetryCommonFields struct {
 	// List of sources to populate environment variables on the generated pods.
 	// +optional
 	EnvFrom []v1.EnvFromSource `json:"envFrom,omitempty"`
-	// VolumeClaimTemplates will provide stable storage using PersistentVolumes.
-	// This only works with the following OpenTelemetryCollector mode's: statefulset.
-	// +optional
-	// +listType=atomic
-	VolumeClaimTemplates []v1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
 	// Toleration to schedule the generated pods.
 	// This only works with the following OpenTelemetryCollector mode's: daemonset, statefulset, and deployment.
 	// +optional
@@ -233,4 +226,27 @@ type OpenTelemetryCommonFields struct {
 	//
 	// +optional
 	AdditionalContainers []v1.Container `json:"additionalContainers,omitempty"`
+	// PodDNSConfig defines the DNS parameters of a pod in addition to those generated from DNSPolicy.
+	PodDNSConfig v1.PodDNSConfig `json:"podDnsConfig,omitempty"`
+	// IPFamily represents the IP Family (IPv4 or IPv6). This type is used
+	// to express the family of an IP expressed by a type (e.g. service.spec.ipFamilies).
+	// +optional
+	IpFamilies []v1.IPFamily `json:"ipFamilies,omitempty"`
+	// IPFamilyPolicy represents the dual-stack-ness requested or required by a Service
+	// +kubebuilder:default:=SingleStack
+	// +optional
+	IpFamilyPolicy *v1.IPFamilyPolicy `json:"ipFamilyPolicy,omitempty"`
+}
+
+type StatefulSetCommonFields struct {
+	// VolumeClaimTemplates will provide stable storage using PersistentVolumes.
+	// This only works with the following OpenTelemetryCollector mode's: statefulset.
+	// +optional
+	// +listType=atomic
+	VolumeClaimTemplates []v1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
+	// PersistentVolumeClaimRetentionPolicy describes the lifecycle of persistent volume claims
+	// created from volumeClaimTemplates.
+	// This only works with the following OpenTelemetryCollector modes: statefulset.
+	// +optional
+	PersistentVolumeClaimRetentionPolicy *appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy `json:"persistentVolumeClaimRetentionPolicy,omitempty"`
 }

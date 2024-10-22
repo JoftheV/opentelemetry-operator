@@ -23,7 +23,6 @@ import (
 
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
-	"github.com/open-telemetry/opentelemetry-operator/internal/manifests"
 	"github.com/open-telemetry/opentelemetry-operator/internal/manifests/manifestutils"
 )
 
@@ -63,19 +62,23 @@ func TestServiceAccountOverrideName(t *testing.T) {
 }
 
 func TestServiceAccountDefault(t *testing.T) {
-	params := manifests.Params{
+	params := Params{
 		TargetAllocator: v1alpha1.TargetAllocator{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "my-instance",
+				Name:      "my-instance",
+				Namespace: "default",
+				Annotations: map[string]string{
+					"prometheus.io/scrape": "false",
+				},
 			},
 		},
 	}
 	expected := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "my-instance-targetallocator",
-			Namespace:   params.OtelCol.Namespace,
+			Namespace:   params.TargetAllocator.Namespace,
 			Labels:      manifestutils.Labels(params.TargetAllocator.ObjectMeta, "my-instance-targetallocator", params.TargetAllocator.Spec.Image, ComponentOpenTelemetryTargetAllocator, nil),
-			Annotations: params.OtelCol.Annotations,
+			Annotations: params.TargetAllocator.Annotations,
 		},
 	}
 
@@ -87,7 +90,7 @@ func TestServiceAccountDefault(t *testing.T) {
 }
 
 func TestServiceAccountOverride(t *testing.T) {
-	params := manifests.Params{
+	params := Params{
 		TargetAllocator: v1alpha1.TargetAllocator{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "my-instance",

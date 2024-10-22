@@ -109,34 +109,40 @@ func LoadFromCLI(target *Config, flagSet *pflag.FlagSet) error {
 		return err
 	}
 
-	target.PrometheusCR.Enabled, err = getPrometheusCREnabled(flagSet)
-	if err != nil {
-		return err
+	if prometheusCREnabled, changed, flagErr := getPrometheusCREnabled(flagSet); flagErr != nil {
+		return flagErr
+	} else if changed {
+		target.PrometheusCR.Enabled = prometheusCREnabled
 	}
 
-	target.HTTPS.Enabled, err = getHttpsEnabled(flagSet)
-	if err != nil {
+	if httpsEnabled, changed, err := getHttpsEnabled(flagSet); err != nil {
 		return err
+	} else if changed {
+		target.HTTPS.Enabled = httpsEnabled
 	}
 
-	target.HTTPS.ListenAddr, err = getHttpsListenAddr(flagSet)
-	if err != nil {
+	if listenAddrHttps, changed, err := getHttpsListenAddr(flagSet); err != nil {
 		return err
+	} else if changed {
+		target.HTTPS.ListenAddr = listenAddrHttps
 	}
 
-	target.HTTPS.CAFilePath, err = getHttpsCAFilePath(flagSet)
-	if err != nil {
+	if caFilePath, changed, err := getHttpsCAFilePath(flagSet); err != nil {
 		return err
+	} else if changed {
+		target.HTTPS.CAFilePath = caFilePath
 	}
 
-	target.HTTPS.TLSCertFilePath, err = getHttpsTLSCertFilePath(flagSet)
-	if err != nil {
+	if tlsCertFilePath, changed, err := getHttpsTLSCertFilePath(flagSet); err != nil {
 		return err
+	} else if changed {
+		target.HTTPS.TLSCertFilePath = tlsCertFilePath
 	}
 
-	target.HTTPS.TLSKeyFilePath, err = getHttpsTLSKeyFilePath(flagSet)
-	if err != nil {
+	if tlsKeyFilePath, changed, err := getHttpsTLSKeyFilePath(flagSet); err != nil {
 		return err
+	} else if changed {
+		target.HTTPS.TLSKeyFilePath = tlsKeyFilePath
 	}
 
 	return nil

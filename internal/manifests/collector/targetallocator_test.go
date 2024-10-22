@@ -15,12 +15,10 @@
 package collector
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +27,6 @@ import (
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/open-telemetry/opentelemetry-operator/internal/manifests"
-	"github.com/open-telemetry/opentelemetry-operator/internal/manifests/manifestutils"
 )
 
 func TestTargetAllocator(t *testing.T) {
@@ -90,12 +87,7 @@ func TestTargetAllocator(t *testing.T) {
 			},
 			want: &v1alpha1.TargetAllocator{
 				ObjectMeta: objectMetadata,
-				Spec: v1alpha1.TargetAllocatorSpec{
-					CollectorSelector: metav1.LabelSelector{
-						MatchLabels: manifestutils.SelectorLabels(objectMetadata, ComponentOpenTelemetryCollector),
-					},
-					ScrapeConfigs: []v1beta1.AnyConfig{},
-				},
+				Spec:       v1alpha1.TargetAllocatorSpec{},
 			},
 		},
 		{
@@ -282,9 +274,6 @@ func TestTargetAllocator(t *testing.T) {
 							},
 						},
 					},
-					CollectorSelector: metav1.LabelSelector{
-						MatchLabels: manifestutils.SelectorLabels(objectMetadata, ComponentOpenTelemetryCollector),
-					},
 					AllocationStrategy: v1beta1.TargetAllocatorAllocationStrategyConsistentHashing,
 					FilterStrategy:     v1beta1.TargetAllocatorFilterStrategyRelabelConfig,
 					PrometheusCR: v1beta1.TargetAllocatorPrometheusCR{
@@ -297,7 +286,6 @@ func TestTargetAllocator(t *testing.T) {
 							MatchLabels: map[string]string{"servicemonitorkey": "servicemonitorkey"},
 						},
 					},
-					ScrapeConfigs: []v1beta1.AnyConfig{},
 					Observability: v1beta1.ObservabilitySpec{
 						Metrics: v1beta1.MetricsConfigSpec{
 							EnableMetrics: true,
@@ -315,113 +303,6 @@ func TestTargetAllocator(t *testing.T) {
 				OtelCol: testCase.input,
 			}
 			actual, err := TargetAllocator(params)
-			assert.Equal(t, testCase.wantErr, err)
-			assert.Equal(t, testCase.want, actual)
-		})
-	}
-}
-
-func TestGetScrapeConfigs(t *testing.T) {
-	testCases := []struct {
-		name    string
-		input   v1beta1.Config
-		want    []v1beta1.AnyConfig
-		wantErr error
-	}{
-		{
-			name: "empty scrape configs list",
-			input: v1beta1.Config{
-				Receivers: v1beta1.AnyConfig{
-					Object: map[string]interface{}{
-						"prometheus": map[string]any{
-							"config": map[string]any{
-								"scrape_configs": []any{},
-							},
-						},
-					},
-				},
-			},
-			want: []v1beta1.AnyConfig{},
-		},
-		{
-			name: "no scrape configs key",
-			input: v1beta1.Config{
-				Receivers: v1beta1.AnyConfig{
-					Object: map[string]interface{}{
-						"prometheus": map[string]any{
-							"config": map[string]any{},
-						},
-					},
-				},
-			},
-			wantErr: fmt.Errorf("no scrape_configs available as part of the configuration"),
-		},
-		{
-			name: "one scrape config",
-			input: v1beta1.Config{
-				Receivers: v1beta1.AnyConfig{
-					Object: map[string]interface{}{
-						"prometheus": map[string]any{
-							"config": map[string]any{
-								"scrape_configs": []any{
-									map[string]any{
-										"job": "somejob",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			want: []v1beta1.AnyConfig{
-				{Object: map[string]interface{}{"job": "somejob"}},
-			},
-		},
-		{
-			name: "regex substitution",
-			input: v1beta1.Config{
-				Receivers: v1beta1.AnyConfig{
-					Object: map[string]interface{}{
-						"prometheus": map[string]any{
-							"config": map[string]any{
-								"scrape_configs": []any{
-									map[string]any{
-										"job": "somejob",
-										"metric_relabel_configs": []map[string]any{
-											{
-												"action":      "labelmap",
-												"regex":       "label_(.+)",
-												"replacement": "$$1",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			want: []v1beta1.AnyConfig{
-				{Object: map[string]interface{}{
-					"job": "somejob",
-					"metric_relabel_configs": []any{
-						map[any]any{
-							"action":      "labelmap",
-							"regex":       "label_(.+)",
-							"replacement": "$1",
-						},
-					},
-				}},
-			},
-		},
-	}
-
-	for _, testCase := range testCases {
-		testCase := testCase
-		t.Run(testCase.name, func(t *testing.T) {
-			configStr, err := testCase.input.Yaml()
-			require.NoError(t, err)
-			actual, err := getScrapeConfigs(configStr)
 			assert.Equal(t, testCase.wantErr, err)
 			assert.Equal(t, testCase.want, actual)
 		})

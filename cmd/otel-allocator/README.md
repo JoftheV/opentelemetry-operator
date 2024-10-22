@@ -98,7 +98,7 @@ spec:
   mode: statefulset
   targetAllocator:
     enabled: true
-  config: |
+  config:
     receivers:
       prometheus:
         config:
@@ -109,14 +109,13 @@ spec:
             - targets: [ '0.0.0.0:8888' ]
 
     exporters:
-      logging:
+      debug: {}
 
     service:
       pipelines:
         metrics:
           receivers: [prometheus]
-          processors: []
-          exporters: [logging]
+          exporters: [debug]
 ```
 
 In essence, Prometheus Receiver configs are overridden with a `http_sd_config` directive that points to the
@@ -131,28 +130,7 @@ and jobs on the `/scrape_configs` and `/jobs` endpoints respectively.
 
 The CRs can be filtered by labels as documented here: [api.md#opentelemetrycollectorspectargetallocatorprometheuscr](../../docs/api.md#opentelemetrycollectorspectargetallocatorprometheuscr)
 
-The Prometheus Receiver in the deployed Collector also has to know where the Allocator service exists. This is done by a
-OpenTelemetry Collector Operator-specific config.
-
-```yaml
-  config: |
-    receivers:
-      prometheus:
-        config:
-          scrape_configs:
-          - job_name: 'otel-collector'
-        target_allocator:
-          endpoint: http://my-targetallocator-service
-          interval: 30s
-          collector_id: "${POD_NAME}"
-```
-
 Upstream documentation here: [PrometheusReceiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/prometheusreceiver#opentelemetry-operator)
-
-The TargetAllocator service is named based on the `OpenTelemetryCollector` CR name. For example, if your Collector CR name is `my-collector`, then the TargetAllocator `service` and `deployment` will each be named `my-collector-targetallocator`, and the `pod` will be named `my-collector-targetallocator-<pod_id>`. `collector_id` should be unique per
-collector instance, such as the pod name. The `POD_NAME` environment variable is convenient since this is supplied
-to collector instance pods by default.
-
 
 ### RBAC
 
@@ -233,9 +211,42 @@ rules:
 
 ### Service / Pod monitor endpoint credentials
 
-If your service or pod monitor endpoints require credentials or other supported form of authentication (bearer token, basic auth, OAuth2 etc.), you need to ensure that the collector has access to this information. Due to some limitations in how the endpoints configuration is handled, target allocator currently does **not** support credentials provided via secrets. It is only possible to provide credentials in a file (for more details see issue https://github.com/open-telemetry/opentelemetry-operator/issues/1669).
+If your service or pod monitor endpoints require authentication (such as bearer tokens, basic auth, OAuth2, etc.), you must ensure that the collector has access to these credentials.
 
-In order to ensure your endpoints can be scraped, your collector instance needs to have the particular secret mounted as a file at the correct path.
+To secure the connection between the target allocator and the collector so that the secrets can be retrieved, mTLS is used. This involves the use of cert-manager to manage the CA, server, and client certificates.
+
+Prerequisites:
+- Ensure cert-manager is installed in your Kubernetes cluster.
+- Grant RBAC Permissions:
+
+    - The target allocator needs the appropriate RBAC permissions to get the secrets referenced in the Service / Pod monitor.
+
+    -  The operator needs the appropriate RBAC permissions to manage cert-manager resources. The following clusterRole can be used to grant the necessary permissions:
+
+        ```yaml
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name:  opentelemetry-operator-controller-manager-cert-manager-role
+        rules:
+        - apiGroups:
+          - cert-manager.io
+          resources:
+          - issuers
+          - certificaterequests
+          - certificates
+          verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - patch
+          - delete
+        ```
+
+- Enable the `operator.targetallocator.mtls` feature gate in the operator's deployment. 
+
 
 
 # Design

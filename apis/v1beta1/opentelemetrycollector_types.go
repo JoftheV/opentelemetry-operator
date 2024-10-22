@@ -80,6 +80,12 @@ type OpenTelemetryCollectorStatus struct {
 type OpenTelemetryCollectorSpec struct {
 	// OpenTelemetryCommonFields are fields that are on all OpenTelemetry CRD workloads.
 	OpenTelemetryCommonFields `json:",inline"`
+	// StatefulSetCommonFields are fields that are on all OpenTelemetry CRD workloads.
+	StatefulSetCommonFields `json:",inline"`
+	// Autoscaler specifies the pod autoscaling configuration to use
+	// for the workload.
+	// +optional
+	Autoscaler *AutoscalerSpec `json:"autoscaler,omitempty"`
 	// TargetAllocator indicates a value which determines whether to spawn a target allocation resource or not.
 	// +optional
 	TargetAllocator TargetAllocatorEmbedded `json:"targetAllocator,omitempty"`
@@ -94,6 +100,12 @@ type OpenTelemetryCollectorSpec struct {
 	// +required
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Config Config `json:"config"`
+	// ConfigVersions defines the number versions to keep for the collector config. Each config version is stored in a separate ConfigMap.
+	// Defaults to 3. The minimum value is 1.
+	// +optional
+	// +kubebuilder:default:=3
+	// +kubebuilder:validation:Minimum:=1
+	ConfigVersions int `json:"configVersions,omitempty"`
 	// Ingress is used to specify how OpenTelemetry Collector is exposed. This
 	// functionality is only available if one of the valid modes is set.
 	// Valid modes are: deployment, daemonset and statefulset.
@@ -204,7 +216,8 @@ type TargetAllocatorEmbedded struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Observability"
 	Observability ObservabilitySpec `json:"observability,omitempty"`
 	// PodDisruptionBudget specifies the pod disruption budget configuration to use
-	// for the target allocator workload.
+	// for the target allocator workload. By default, a PDB with a MaxUnavailable of one is set for a valid
+	// allocation strategy.
 	//
 	// +optional
 	PodDisruptionBudget *PodDisruptionBudgetSpec `json:"podDisruptionBudget,omitempty"`

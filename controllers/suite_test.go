@@ -50,16 +50,19 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/yaml"
 
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1alpha1"
 	"github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect"
+	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect/certmanager"
 	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect/openshift"
 	"github.com/open-telemetry/opentelemetry-operator/internal/autodetect/prometheus"
 	autoRBAC "github.com/open-telemetry/opentelemetry-operator/internal/autodetect/rbac"
 	"github.com/open-telemetry/opentelemetry-operator/internal/config"
 	"github.com/open-telemetry/opentelemetry-operator/internal/manifests"
 	"github.com/open-telemetry/opentelemetry-operator/internal/manifests/collector/testdata"
+	"github.com/open-telemetry/opentelemetry-operator/internal/manifests/manifestutils"
 	"github.com/open-telemetry/opentelemetry-operator/internal/rbac"
 	// +kubebuilder:scaffold:imports
 )
@@ -89,6 +92,7 @@ const (
 	promFile                 = "testdata/test.yaml"
 	updatedPromFile          = "testdata/test_ta_update.yaml"
 	testFileIngress          = "testdata/ingress_testdata.yaml"
+	otlpTestFile             = "testdata/otlp_test.yaml"
 )
 
 var _ autodetect.AutoDetect = (*mockAutoDetect)(nil)
@@ -97,6 +101,11 @@ type mockAutoDetect struct {
 	OpenShiftRoutesAvailabilityFunc func() (openshift.RoutesAvailability, error)
 	PrometheusCRsAvailabilityFunc   func() (prometheus.Availability, error)
 	RBACPermissionsFunc             func(ctx context.Context) (autoRBAC.Availability, error)
+	CertManagerAvailabilityFunc     func(ctx context.Context) (certmanager.Availability, error)
+}
+
+func (m *mockAutoDetect) FIPSEnabled(ctx context.Context) bool {
+	return false
 }
 
 func (m *mockAutoDetect) PrometheusCRsAvailability() (prometheus.Availability, error) {
@@ -118,6 +127,13 @@ func (m *mockAutoDetect) RBACPermissions(ctx context.Context) (autoRBAC.Availabi
 		return m.RBACPermissionsFunc(ctx)
 	}
 	return autoRBAC.NotAvailable, nil
+}
+
+func (m *mockAutoDetect) CertManagerAvailability(ctx context.Context) (certmanager.Availability, error) {
+	if m.CertManagerAvailabilityFunc != nil {
+		return m.CertManagerAvailabilityFunc(ctx)
+	}
+	return certmanager.NotAvailable, nil
 }
 
 func TestMain(m *testing.M) {
@@ -175,7 +191,11 @@ func TestMain(m *testing.M) {
 	}
 	reviewer := rbac.NewReviewer(clientset)
 
-	if err = v1beta1.SetupCollectorWebhook(mgr, config.New(), reviewer); err != nil {
+	if err = v1beta1.SetupCollectorWebhook(mgr, config.New(), reviewer, nil, nil, nil); err != nil {
+		fmt.Printf("failed to SetupWebhookWithManager: %v", err)
+		os.Exit(1)
+	}
+	if err = v1alpha1.SetupTargetAllocatorWebhook(mgr, config.New(), reviewer); err != nil {
 		fmt.Printf("failed to SetupWebhookWithManager: %v", err)
 		os.Exit(1)
 	}
@@ -460,7 +480,7 @@ func opampBridgeParams() manifests.Params {
 					v1alpha1.OpAMPBridgeCapabilityReportsHealth:                  true,
 					v1alpha1.OpAMPBridgeCapabilityReportsRemoteConfig:            true,
 				},
-				ComponentsAllowed: map[string][]string{"receivers": {"otlp"}, "processors": {"memory_limiter"}, "exporters": {"logging"}},
+				ComponentsAllowed: map[string][]string{"receivers": {"otlp"}, "processors": {"memory_limiter"}, "exporters": {"debug"}},
 			},
 		},
 		Scheme:   testScheme,
@@ -479,4 +499,13 @@ func populateObjectIfExists(t testing.TB, object client.Object, namespacedName t
 		return false, err
 	}
 	return true, nil
+}
+
+func getConfigMapSHAFromString(configStr string) (string, error) {
+	var config v1beta1.Config
+	err := yaml.Unmarshal([]byte(configStr), &config)
+	if err != nil {
+		return "", err
+	}
+	return manifestutils.GetConfigMapSHA(config)
 }

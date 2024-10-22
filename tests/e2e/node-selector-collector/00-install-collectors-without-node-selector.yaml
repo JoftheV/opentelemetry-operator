@@ -6,6 +6,7 @@ metadata:
     node-selector-mode: without
 spec:
   mode: deployment
+  nodeSelector:
   config: |
     receivers:
       otlp:
@@ -21,7 +22,6 @@ spec:
       pipelines:
         traces:
           receivers: [otlp]
-          processors: []
           exporters: [debug]
 
 ---
@@ -33,6 +33,7 @@ metadata:
     node-selector-mode: without
 spec:
   mode: daemonset
+  nodeSelector:
   config: |
     receivers:
       otlp:
@@ -48,7 +49,6 @@ spec:
       pipelines:
         traces:
           receivers: [otlp]
-          processors: []
           exporters: [debug]
 
 ---
@@ -60,6 +60,7 @@ metadata:
     node-selector-mode: without
 spec:
   mode: statefulset
+  nodeSelector:
   config: |
     receivers:
       otlp:
@@ -75,5 +76,4 @@ spec:
       pipelines:
         traces:
           receivers: [otlp]
-          processors: []
           exporters: [debug]

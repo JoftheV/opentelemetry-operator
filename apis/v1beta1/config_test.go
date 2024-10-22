@@ -21,9 +21,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	go_yaml "gopkg.in/yaml.v3"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 )
 
@@ -139,7 +143,7 @@ func TestConfigYaml(t *testing.T) {
 			},
 		},
 		Service: Service{
-			Extensions: &[]string{"addon"},
+			Extensions: []string{"addon"},
 			Telemetry: &AnyConfig{
 				Object: map[string]interface{}{
 					"insights": "yeah!",
@@ -216,11 +220,13 @@ func TestConfigToMetricsPort(t *testing.T) {
 
 	for _, tt := range []struct {
 		desc         string
+		expectedAddr string
 		expectedPort int32
 		config       Service
 	}{
 		{
 			"custom port",
+			"0.0.0.0",
 			9090,
 			Service{
 				Telemetry: &AnyConfig{
@@ -234,6 +240,7 @@ func TestConfigToMetricsPort(t *testing.T) {
 		},
 		{
 			"bad address",
+			"0.0.0.0",
 			8888,
 			Service{
 				Telemetry: &AnyConfig{
@@ -247,6 +254,7 @@ func TestConfigToMetricsPort(t *testing.T) {
 		},
 		{
 			"missing address",
+			"0.0.0.0",
 			8888,
 			Service{
 				Telemetry: &AnyConfig{
@@ -260,6 +268,7 @@ func TestConfigToMetricsPort(t *testing.T) {
 		},
 		{
 			"missing metrics",
+			"0.0.0.0",
 			8888,
 			Service{
 				Telemetry: &AnyConfig{},
@@ -267,14 +276,30 @@ func TestConfigToMetricsPort(t *testing.T) {
 		},
 		{
 			"missing telemetry",
+			"0.0.0.0",
 			8888,
 			Service{},
+		},
+		{
+			"configured telemetry",
+			"1.2.3.4",
+			4567,
+			Service{
+				Telemetry: &AnyConfig{
+					Object: map[string]interface{}{
+						"metrics": map[string]interface{}{
+							"address": "1.2.3.4:4567",
+						},
+					},
+				},
+			},
 		},
 	} {
 		t.Run(tt.desc, func(t *testing.T) {
 			// these are acceptable failures, we return to the collector's default metric port
-			port, err := tt.config.MetricsPort()
+			addr, port, err := tt.config.MetricsEndpoint()
 			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedAddr, addr)
 			assert.Equal(t, tt.expectedPort, port)
 		})
 	}
@@ -284,92 +309,104 @@ func TestConfig_GetEnabledComponents(t *testing.T) {
 	tests := []struct {
 		name string
 		file string
-		want map[ComponentType]map[string]interface{}
+		want map[ComponentKind]map[string]interface{}
 	}{
 
 		{
 			name: "connectors",
 			file: "testdata/otelcol-connectors.yaml",
-			want: map[ComponentType]map[string]interface{}{
-				ComponentTypeReceiver: {
+			want: map[ComponentKind]map[string]interface{}{
+				KindReceiver: {
 					"foo":   struct{}{},
 					"count": struct{}{},
 				},
-				ComponentTypeProcessor: {},
-				ComponentTypeExporter: {
+				KindProcessor: {},
+				KindExporter: {
 					"bar":   struct{}{},
 					"count": struct{}{},
 				},
+				KindExtension: {},
 			},
 		},
 		{
 			name: "couchbase",
 			file: "testdata/otelcol-couchbase.yaml",
-			want: map[ComponentType]map[string]interface{}{
-				ComponentTypeReceiver: {
+			want: map[ComponentKind]map[string]interface{}{
+				KindReceiver: {
 					"prometheus/couchbase": struct{}{},
 				},
-				ComponentTypeProcessor: {
+				KindProcessor: {
 					"filter/couchbase":           struct{}{},
 					"metricstransform/couchbase": struct{}{},
 					"transform/couchbase":        struct{}{},
 				},
-				ComponentTypeExporter: {
+				KindExporter: {
 					"prometheus": struct{}{},
 				},
+				KindExtension: {},
 			},
 		},
 		{
 			name: "demo",
 			file: "testdata/otelcol-demo.yaml",
-			want: map[ComponentType]map[string]interface{}{
-				ComponentTypeReceiver: {
+			want: map[ComponentKind]map[string]interface{}{
+				KindReceiver: {
 					"otlp": struct{}{},
 				},
-				ComponentTypeProcessor: {
+				KindProcessor: {
 					"batch": struct{}{},
 				},
-				ComponentTypeExporter: {
+				KindExporter: {
 					"debug":      struct{}{},
 					"zipkin":     struct{}{},
 					"otlp":       struct{}{},
 					"prometheus": struct{}{},
+				},
+				KindExtension: {
+					"health_check": struct{}{},
+					"pprof":        struct{}{},
+					"zpages":       struct{}{},
 				},
 			},
 		},
 		{
 			name: "extensions",
 			file: "testdata/otelcol-extensions.yaml",
-			want: map[ComponentType]map[string]interface{}{
-				ComponentTypeReceiver: {
+			want: map[ComponentKind]map[string]interface{}{
+				KindReceiver: {
 					"otlp": struct{}{},
 				},
-				ComponentTypeProcessor: {},
-				ComponentTypeExporter: {
+				KindProcessor: {},
+				KindExporter: {
 					"otlp/auth": struct{}{},
+				},
+				KindExtension: {
+					"oauth2client": struct{}{},
 				},
 			},
 		},
 		{
 			name: "filelog",
 			file: "testdata/otelcol-filelog.yaml",
-			want: map[ComponentType]map[string]interface{}{
-				ComponentTypeReceiver: {
+			want: map[ComponentKind]map[string]interface{}{
+				KindReceiver: {
 					"filelog": struct{}{},
 				},
-				ComponentTypeProcessor: {},
-				ComponentTypeExporter: {
+				KindProcessor: {},
+				KindExporter: {
 					"debug": struct{}{},
 				},
+				KindExtension: {},
 			},
 		},
 		{
 			name: "null",
 			file: "testdata/otelcol-null-values.yaml",
-			want: map[ComponentType]map[string]interface{}{
-				ComponentTypeReceiver:  {},
-				ComponentTypeProcessor: {},
-				ComponentTypeExporter:  {},
+			want: map[ComponentKind]map[string]interface{}{
+				KindReceiver:  {},
+				KindProcessor: {},
+				KindExporter:  {},
+				KindExtension: {},
 			},
 		},
 	}
@@ -382,6 +419,163 @@ func TestConfig_GetEnabledComponents(t *testing.T) {
 			err = go_yaml.Unmarshal(collectorYaml, c)
 			require.NoError(t, err)
 			assert.Equalf(t, tt.want, c.GetEnabledComponents(), "GetEnabledComponents()")
+		})
+	}
+}
+
+func TestConfig_GetReceiverPorts(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		want    []v1.ServicePort
+		wantErr bool
+	}{
+		{
+			name: "k8sevents",
+			file: "testdata/otelcol-k8sevents.yaml",
+			want: []v1.ServicePort{
+				{
+					Name:        "otlp-http",
+					Protocol:    "",
+					AppProtocol: ptr.To("http"),
+					Port:        4318,
+					TargetPort:  intstr.FromInt32(4318),
+				},
+			},
+			wantErr: false, // Silently fail
+		},
+		{
+			name:    "connectors",
+			file:    "testdata/otelcol-connectors.yaml",
+			want:    nil,
+			wantErr: false, // Silently fail
+		},
+		{
+			name: "couchbase",
+			file: "testdata/otelcol-couchbase.yaml",
+			want: nil, // Couchbase uses a prometheus scraper, no ports should be opened
+		},
+		{
+			name: "demo",
+			file: "testdata/otelcol-demo.yaml",
+			want: []v1.ServicePort{
+				{
+					Name:        "otlp-grpc",
+					Protocol:    "",
+					AppProtocol: ptr.To("grpc"),
+					Port:        4317,
+					TargetPort:  intstr.FromInt32(4317),
+				},
+			},
+		},
+		{
+			name: "extensions",
+			file: "testdata/otelcol-extensions.yaml",
+			want: []v1.ServicePort{
+				{
+					Name:        "otlp-grpc",
+					Protocol:    "",
+					AppProtocol: ptr.To("grpc"),
+					Port:        4317,
+					TargetPort:  intstr.FromInt32(4317),
+				},
+			},
+		},
+		{
+			name: "filelog",
+			file: "testdata/otelcol-filelog.yaml",
+			want: nil,
+		},
+		{
+			name: "null",
+			file: "testdata/otelcol-null-values.yaml",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			collectorYaml, err := os.ReadFile(tt.file)
+			require.NoError(t, err)
+
+			c := &Config{}
+			err = go_yaml.Unmarshal(collectorYaml, c)
+			require.NoError(t, err)
+			ports, err := c.GetReceiverPorts(logr.Discard())
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equalf(t, tt.want, ports, "GetReceiverPorts()")
+		})
+	}
+}
+
+func TestConfig_GetExporterPorts(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		want    []v1.ServicePort
+		wantErr bool
+	}{
+
+		{
+			name:    "connectors",
+			file:    "testdata/otelcol-connectors.yaml",
+			want:    nil,
+			wantErr: false,
+		},
+		{
+			name: "couchbase",
+			file: "testdata/otelcol-couchbase.yaml",
+			want: []v1.ServicePort{
+				{
+					Name: "prometheus",
+					Port: 9123,
+				},
+			},
+		},
+		{
+			name: "demo",
+			file: "testdata/otelcol-demo.yaml",
+			want: []v1.ServicePort{
+				{
+					Name: "prometheus",
+					Port: 8889,
+				},
+			},
+		},
+		{
+			name: "extensions",
+			file: "testdata/otelcol-extensions.yaml",
+			want: nil,
+		},
+		{
+			name: "filelog",
+			file: "testdata/otelcol-filelog.yaml",
+			want: nil,
+		},
+		{
+			name: "null",
+			file: "testdata/otelcol-null-values.yaml",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			collectorYaml, err := os.ReadFile(tt.file)
+			require.NoError(t, err)
+
+			c := &Config{}
+			err = go_yaml.Unmarshal(collectorYaml, c)
+			require.NoError(t, err)
+			ports, err := c.GetExporterPorts(logr.Discard())
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.ElementsMatchf(t, tt.want, ports, "GetReceiverPorts()")
 		})
 	}
 }
